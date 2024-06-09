@@ -43,5 +43,5 @@ alembic upgrade head
 Run the app
 
 ```shell
-uvicorn app.main:app --reload
+uvicorn main:app --reload
 ```
