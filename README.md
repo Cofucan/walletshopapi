@@ -1,5 +1,7 @@
 # WalletShop API
 
+To use this API,
+
 Clone the repo
 
 ```shell
