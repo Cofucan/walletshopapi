@@ -15,6 +15,7 @@ from app.settings import (
     EMAIL_PORT,
     FORGOT_PASSWORD_TEMPLATE,
     WELCOME_TEMPLATE,
+    APP_URL
 )
 
 
@@ -95,7 +96,11 @@ def send_otp(recipient_address: str, otp: str, subject: str) -> None:
         "verification_code": otp,
     }
 
+    print("Trying to send OTP email")
+
     send_email(recipient_address, subject, FORGOT_PASSWORD_TEMPLATE, context)
+
+    print("Sent OTP email")
 
     return None
 
@@ -112,7 +117,9 @@ def send_welcome_mail(recipient_address: str, full_name: str) -> None:
         None
     """
 
-    context = {"full_name": full_name, "link": "https://app.emotionchip.dev"}
+    context = {"full_name": full_name, "link": APP_URL}
+
+    print("Trying to send welcome email")
 
     try:
         send_email(recipient_address, "Welcome!", WELCOME_TEMPLATE, context)
@@ -121,5 +128,7 @@ def send_welcome_mail(recipient_address: str, full_name: str) -> None:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(err),
         ) from err
+
+    print("Sent welcome email")
 
     return None

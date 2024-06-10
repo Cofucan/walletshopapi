@@ -2,9 +2,12 @@
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.background import BackgroundTasks
+from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordBearer
+from fastapi_sso.sso.github import GithubSSO
+from fastapi_sso.sso.google import GoogleSSO
 from sqlalchemy import orm
 
 from app.database import get_db
@@ -19,20 +22,24 @@ from app.services.auth_services import (
     pwd_context,
 )
 from app.services.messaging_services import send_otp, send_welcome_mail
-from app.settings import ACCESS_TOKEN_EXPIRE_MINUTES, OTP_EXPIRE_MINUTES
+from app.settings import ACCESS_TOKEN_EXPIRE_MINUTES, OTP_EXPIRE_MINUTES, FRONTEND_URL, GOOGLE_CLIENT_ID, \
+    GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_REDIRECT_URI
 
 auth_router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-app = APIRouter(prefix="/v1/auth", tags=["Authentication"])
+google_sso = GoogleSSO(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI)
+github_sso = GithubSSO(GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_REDIRECT_URI)
+
+app = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 
 # Signup endpoint
 @app.post("/signup", response_model=user_schemas.UserSignupResponse)
 async def signup(
-    payload: user_schemas.UserCreateRequest,
-    bg_tasks: BackgroundTasks,
-    db: orm.Session = Depends(get_db),
+        payload: user_schemas.UserCreateRequest,
+        bg_tasks: BackgroundTasks,
+        db: orm.Session = Depends(get_db),
 ):
     """Signup endpoint.
 
@@ -48,9 +55,9 @@ async def signup(
         User: Created user.
     """
     if user := (
-        db.query(user_models.User)
-        .filter(user_models.User.email == payload.email)
-        .first()
+            db.query(user_models.User)
+                    .filter(user_models.User.email == payload.email)
+                    .first()
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -73,11 +80,11 @@ async def signup(
     db.refresh(created_user)
 
     # Send welcome email
-    # bg_tasks.add_task(
-    #     send_welcome_mail,
-    #     created_user.email,
-    #     created_user.full_name,
-    # )
+    bg_tasks.add_task(
+        send_welcome_mail,
+        created_user.email,
+        f"{created_user.first_name} {created_user.last_name}"
+    )
 
     # Generate access token
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -99,8 +106,8 @@ async def signup(
 # Login endpoint
 @app.post("/login", response_model=user_schemas.UserLoginResponse)
 async def login_for_access_token(
-    payload: user_schemas.UserLoginRequest,
-    db: orm.Session = Depends(get_db),
+        payload: user_schemas.UserLoginRequest,
+        db: orm.Session = Depends(get_db),
 ):
     """Login endpoint.
 
@@ -147,9 +154,9 @@ async def login_for_access_token(
 # Change password
 @app.post("/change_password")
 async def change_password(
-    payload: user_schemas.UserChangePasswordRequest,
-    current_user: user_schemas.User = Depends(is_authenticated),
-    db: orm.Session = Depends(get_db),
+        payload: user_schemas.UserChangePasswordRequest,
+        current_user: user_schemas.User = Depends(is_authenticated),
+        db: orm.Session = Depends(get_db),
 ):
     """Change password endpoint.
 
@@ -193,8 +200,8 @@ async def change_password(
 # Forgot password
 @app.post("/forgot_password")
 async def forgot_password(
-    payload: user_schemas.UserBase,
-    db: orm.Session = Depends(get_db),
+        payload: user_schemas.UserBase,
+        db: orm.Session = Depends(get_db),
 ):
     """Forgot password endpoint.
 
@@ -244,8 +251,8 @@ async def forgot_password(
 # Reset password
 @app.post("/reset_password")
 async def reset_password(
-    payload: user_schemas.UserResetPasswordRequest,
-    db: orm.Session = Depends(get_db),
+        payload: user_schemas.UserResetPasswordRequest,
+        db: orm.Session = Depends(get_db),
 ):
     """Reset password endpoint.
 
@@ -282,7 +289,7 @@ async def reset_password(
 
     # Check if OTP is expired
     if otp.created_at + timedelta(minutes=OTP_EXPIRE_MINUTES) < datetime.now(
-        timezone.utc
+            timezone.utc
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -311,9 +318,9 @@ async def reset_password(
 # Logout endpoint which will invalidate the token
 @app.post("/logout")
 async def invalidate_access_token(
-    access_token: str = Depends(oauth2_scheme),
-    _: user_schemas.User = Depends(is_authenticated),
-    db: orm.Session = Depends(get_db),
+        access_token: str = Depends(oauth2_scheme),
+        _: user_schemas.User = Depends(is_authenticated),
+        db: orm.Session = Depends(get_db),
 ):
     """Logout endpoint.
 
@@ -337,8 +344,8 @@ async def invalidate_access_token(
 # Endpoint to generate and send OTP to the user
 @app.post("/otp/generate")
 async def generate_and_send_otp(
-    payload: user_schemas.UserBase,
-    db: orm.Session = Depends(get_db),
+        payload: user_schemas.UserBase,
+        db: orm.Session = Depends(get_db),
 ):
     """Generate OTP endpoint.
 
@@ -383,11 +390,75 @@ async def generate_and_send_otp(
     return {"detail": "OTP sent successfully"}
 
 
+# Google login
+@app.get("/login/google")
+async def google_login():
+    """Generate login url and redirect"""
+    with google_sso:
+        return await google_sso.get_login_redirect()
+
+
+# Process login request from google and return user data with access token
+@app.get("/login/google/callback", response_model=user_schemas.UserLoginResponse)
+async def google_login_callback(
+        request: Request,
+        db: orm.Session = Depends(get_db),
+):
+    """
+    Process login request from google and return user data with access token.
+
+    Args:
+        request (Request): Request object containing auth code from Google.
+        db (Session, optional): Database session. Defaults to Depends(get_db).
+
+    Returns:
+        UserLoginResponse: User login response.
+    """
+    with google_sso:
+        user_data = await google_sso.verify_and_process(request)
+        user, access_token = get_access_token(user_data, db)
+        # Construct the redirect URL with query parameters
+        redirect_url = f"{FRONTEND_URL}/magic-login?success=true&token={access_token}"
+        # Redirect to the constructed URL
+        return RedirectResponse(redirect_url)
+
+
+# Github login
+@app.get("/login/github")
+async def github_login():
+    """Generate login url and redirect"""
+    with github_sso:
+        return await github_sso.get_login_redirect()
+
+
+# Process login request from GitHub and return user data with access token
+@app.get("/login/github/callback", response_model=user_schemas.UserLoginResponse)
+async def github_login_callback(
+        request: Request,
+        db: orm.Session = Depends(get_db),
+):
+    """
+    Process login request from GitHub and return user data with access token.
+
+    Args:
+        request (Request): Request object containing auth code from GitHub.
+        db (Session, optional): Database session. Defaults to Depends(get_db).
+
+    Returns:
+        UserLoginResponse: User login response.
+    """
+    with github_sso:
+        user_data = await github_sso.verify_and_process(request)
+        _, access_token = get_access_token(user_data, db)
+        redirect_url = f"{FRONTEND_URL}/magic-login?success=true&token={access_token}"
+        return RedirectResponse(redirect_url)
+
+
 # Delete user
 @app.delete("/close_account")
 async def delete_user(
-    current_user: user_schemas.User = Depends(is_authenticated),
-    db: orm.Session = Depends(get_db),
+        current_user: user_schemas.User = Depends(is_authenticated),
+        db: orm.Session = Depends(get_db),
 ):
     """Delete user endpoint.
 
