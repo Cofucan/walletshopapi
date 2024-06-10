@@ -19,6 +19,7 @@ from app.services.auth_services import (
     create_access_token,
     generate_otp,
     get_access_token,
+    hash_password,
     pwd_context,
 )
 from app.services.messaging_services import send_otp, send_welcome_mail
@@ -56,8 +57,8 @@ async def signup(
     """
     if user := (
             db.query(user_models.User)
-                    .filter(user_models.User.email == payload.email)
-                    .first()
+            .filter(user_models.User.email == payload.email)
+            .first()
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -402,6 +403,7 @@ async def google_login():
 @app.get("/login/google/callback", response_model=user_schemas.UserLoginResponse)
 async def google_login_callback(
         request: Request,
+        background_tasks: BackgroundTasks,
         db: orm.Session = Depends(get_db),
 ):
     """
@@ -409,6 +411,7 @@ async def google_login_callback(
 
     Args:
         request (Request): Request object containing auth code from Google.
+        background_tasks (BackgroundTasks): Background tasks.
         db (Session, optional): Database session. Defaults to Depends(get_db).
 
     Returns:
@@ -417,13 +420,40 @@ async def google_login_callback(
     with google_sso:
         user_data = await google_sso.verify_and_process(request)
         user, access_token = get_access_token(user_data, db)
-        # Construct the redirect URL with query parameters
-        redirect_url = f"{FRONTEND_URL}/magic-login?success=true&token={access_token}"
-        # Redirect to the constructed URL
-        return RedirectResponse(redirect_url)
+
+    if not user_data:
+        raise HTTPException(status_code=400, detail="Failed to Login to Google")
+
+    user_email = user.email
+    display_name = user.first_name.lower()
+
+    # Check if a user with the given email exists
+    current_user = db.query(user_models.User).filter_by(email=user_email).first()
+
+    # Add user to database if user doesn't exist
+    if not current_user:
+        password = hash_password(user_email)
+        current_user = user_models.User(
+            email=user_email,
+            first_name=display_name,
+            hashed_password=password,
+        )
+
+        db.add(current_user)
+        db.commit()
+        db.refresh(current_user)
+
+        background_tasks.add_task(
+            send_welcome_mail, current_user.email, current_user.username
+        )
+
+    # Construct the redirect URL with query parameters
+    redirect_url = f"{FRONTEND_URL}?success=true&token={access_token}"
+    # Redirect to the constructed URL
+    return RedirectResponse(redirect_url)
 
 
-# Github login
+# GitHub login
 @app.get("/login/github")
 async def github_login():
     """Generate login url and redirect"""
