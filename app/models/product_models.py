@@ -26,6 +26,7 @@ class Product(database.Base):
     description = Column(String(255))
     price = Column(Float)
     stock = Column(Integer)
+    currency_code = Column(String(3), default="USD")
     is_deleted = Column(Boolean, default=False)
     created_at: DateTime = Column(DateTime, server_default=func.now())
     updated_at: Optional[DateTime] = Column(DateTime, onupdate=func.now())
