@@ -40,8 +40,8 @@ class User(UserBase):
 
 class UserCreateRequest(UserBase):
     password: str
-    first_name: Optional[str]
-    last_name: Optional[str]
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -56,8 +56,8 @@ class UserLoginRequest(UserBase):
 
 class UserSignupResponse(UserBase):
     id: int
-    first_name: str
-    last_name: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     access_token: str
     is_superadmin: bool
     created_at: dt.datetime
