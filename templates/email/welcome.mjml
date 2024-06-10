@@ -24,7 +24,7 @@
                 <mj-button align="center" font-size="18px" background-color="#a52a2a" color="#fff"
                            font-family="Work Sans" href="{{link}}">Get started
                 </mj-button>
-                <!--       <mj-text align="center" font-size="16px" font-family="Work Sans" padding-left="25px" color="#5E5E5E" padding-right="25px">You can check out <a href="/" style="color:#120B48">tutorials</a> to get the most out of EmotionChip.</mj-text>-->
+                <!--       <mj-text align="center" font-size="16px" font-family="Work Sans" padding-left="25px" color="#5E5E5E" padding-right="25px">You can check out <a href="/" style="color:#120B48">tutorials</a> to get the most out of WalletShop.</mj-text>-->
                 <mj-text align="center" font-size="16px" font-family="Work Sans" padding-left="25px" color="#5E5E5E"
                          padding-top="5px" padding-right="25px">Happy onboarding!
                 </mj-text>
