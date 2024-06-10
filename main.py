@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 
 # from admin import admin_app
 from app.routes.auth import app as auth
+from app.routes.products import app as products
 from app.database import SessionLocal
 
 # from api.db.database import create_database
@@ -53,7 +54,7 @@ app.add_middleware(
 )
 
 app.include_router(auth)
-# app.include_router(users)
+app.include_router(products)
 
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 
